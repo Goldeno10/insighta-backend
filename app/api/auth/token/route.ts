@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 
 const corsHeaders = {
   // 1. You MUST use '*' or your exact web portal URL (e.g. http://localhost:3001)
-  'Access-Control-Allow-Origin': '*', 
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Version',
   'Access-Control-Max-Age': '86400', // Caches the preflight for 24 hours
@@ -25,6 +25,33 @@ export async function POST(request: Request) {
     if (!code) {
       return NextResponse.json({ status: "error", message: "Code required" }, { status: 400, headers: corsHeaders });
     }
+
+    // const { code } = await request.json().catch(() => ({})); // or searchParams.get('code')
+
+    // 💡 MENTOR DIRECTIVE: Handle "test_code" for automated Admin token extraction
+    if (code === 'test_code') {
+      const adminToken = jwt.sign(
+        { userId: "mock-admin-uuid-01", role: "admin" },
+        process.env.JWT_SECRET!,
+        { expiresIn: '3m' }
+      );
+
+      const refreshToken = jwt.sign(
+        { userId: "mock-admin-uuid-01" },
+        process.env.REFRESH_SECRET!,
+        { expiresIn: '5m' }
+      );
+
+      return NextResponse.json({
+        status: "success",
+        access_token: adminToken,
+        refresh_token: refreshToken,
+        expires_in: 180
+      }, {
+        headers: { 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+
 
     // 1. Exchange code for GitHub Access Token
     const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
@@ -64,14 +91,14 @@ export async function POST(request: Request) {
 
     // 4. Issue Access & Refresh Tokens
     const accessToken = jwt.sign(
-      { userId: user.id, role: user.role }, 
-      process.env.JWT_SECRET!, 
+      { userId: user.id, role: user.role },
+      process.env.JWT_SECRET!,
       { expiresIn: '3m' } // 3 minutes as requested
     );
-    
+
     const refreshToken = jwt.sign(
-      { userId: user.id }, 
-      process.env.REFRESH_SECRET!, 
+      { userId: user.id },
+      process.env.REFRESH_SECRET!,
       { expiresIn: '5m' } // 5 minutes as requested
     );
 
@@ -79,9 +106,10 @@ export async function POST(request: Request) {
       access_token: accessToken,
       refresh_token: refreshToken,
       expires_in: 180
-    }, { 
+    }, {
       status: 200,
-      headers: corsHeaders });
+      headers: corsHeaders
+    });
 
   } catch (error) {
     return NextResponse.json({ status: "error", message: "Server failure" }, { status: 500, headers: corsHeaders });

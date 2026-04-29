@@ -13,7 +13,7 @@ const ratelimit = new Ratelimit({
 
 export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
-  if (!path.startsWith('/api/profiles')) return NextResponse.next();
+  // if (!path.startsWith('/api/profiles')) return NextResponse.next();
 
   // 1. Rate Limiting
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || req.headers.get('x-real-ip') || '127.0.0.1';
