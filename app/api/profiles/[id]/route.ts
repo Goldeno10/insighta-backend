@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma';
 import { NextResponse } from 'next/server';
-// import { logRequest } from '@/lib/logger'
+import { logRequest } from '@/lib/logger'
 
 // const redis = Redis.fromEnv();
 const corsHeaders = { 
@@ -16,14 +16,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   // const profiles = await prisma.profile.findMany({ where: { id } });
   const profile = await prisma.$queryRaw`SELECT * FROM "Profile" WHERE id = ${id}`;
   //  get the first profile from the array
-  // const startTime = Date.now();
+  const startTime = Date.now();
 
 
   if (!profile) {
-    // await logRequest('GET', `/api/profiles/${id}`, 404, startTime);
+    logRequest('GET', `/api/profiles/${id}`, 404, startTime);
     return NextResponse.json({ status: "error", message: "Profile not found" }, { status: 404, headers: corsHeaders });
   }
-  // await logRequest('GET', `/api/profiles/${id}`, 200, startTime);
+  logRequest('GET', `/api/profiles/${id}`, 200, startTime);
   return NextResponse.json({ status: "success", data: profile }, { headers: corsHeaders });
 }
 
@@ -34,12 +34,12 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   // const profile: any = await prisma.profile.findMany({ where: { id } });
     const profile = await prisma.$queryRaw`SELECT * FROM "Profile" WHERE id = ${id}`;
   //  get the first profile from the array
-  // const startTime = Date.now();
+  const startTime = Date.now();
   if (!profile) {
-    // await logRequest('DELETE', `/api/profiles/${id}`, 404, startTime);
+    logRequest('DELETE', `/api/profiles/${id}`, 404, startTime);
     return NextResponse.json({ status: "error", message: "Profile not found" }, { status: 404, headers: corsHeaders });
   }
-  // await logRequest('DELETE', `/api/profiles/${id}`, 200, startTime);
+  logRequest('DELETE', `/api/profiles/${id}`, 200, startTime);
 
   await prisma.profile.delete({ where: { id } });
 

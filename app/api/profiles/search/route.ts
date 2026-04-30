@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { logRequest } from '@/lib/logger'
+
 import { parseNaturalLanguage } from '@/lib/nlp-parser';
 
 export async function GET(request: Request) {
@@ -7,10 +9,16 @@ export async function GET(request: Request) {
   const q = searchParams.get('q');
   const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
 
-  if (!q) return NextResponse.json({ status: "error", message: "Missing parameter" }, { status: 400, headers: corsHeaders });
+  if (!q) {
+    logRequest('GET', request.url, 400, Date.now());
+    return NextResponse.json({ status: "error", message: "Missing parameter" }, { status: 400, headers: corsHeaders });
+  }
 
   const filters = parseNaturalLanguage(q);
-  if (!filters) return NextResponse.json({ status: "error", message: "Unable to interpret query" }, { status: 400, headers: corsHeaders });
+  if (!filters) {
+    logRequest('GET', request.url, 400, Date.now());
+     return NextResponse.json({ status: "error", message: "Unable to interpret query" }, { status: 400, headers: corsHeaders });
+  }
 
   try {
     // Build 'where' object directly from NLP filters
@@ -31,6 +39,8 @@ export async function GET(request: Request) {
       take: 10 // Default limit for search
     });
 
+    logRequest('GET', request.url, 200, Date.now());
+
     return NextResponse.json({
       status: "success",
       total: data.length,
@@ -39,6 +49,7 @@ export async function GET(request: Request) {
 
   } catch (error) {
     console.error("Search error:", error);
+    logRequest('GET', request.url, 500, Date.now());
     return NextResponse.json({
       status: "error",
       message: error instanceof Error ? error.message : String(error)
