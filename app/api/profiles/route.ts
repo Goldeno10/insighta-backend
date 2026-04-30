@@ -69,7 +69,7 @@ export async function GET(request: Request) {
       status: "success",
       data,
       pagination: {
-        total,
+        total, //status, page, limit, total, total_pages, links, data)
         total_pages,
         current_page: page,
         limit,
