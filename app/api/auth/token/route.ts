@@ -93,19 +93,19 @@ export async function POST(request: Request) {
     const accessToken = jwt.sign(
       { userId: user.id, role: user.role },
       process.env.JWT_SECRET!,
-      { expiresIn: '3m' } // 3 minutes as requested
+      { expiresIn: '2h' } // 2 hours as requested
     );
 
     const refreshToken = jwt.sign(
       { userId: user.id },
       process.env.REFRESH_SECRET!,
-      { expiresIn: '5m' } // 5 minutes as requested
+      { expiresIn: '5h' } // 5 hours as requested
     );
 
     return NextResponse.json({
       access_token: accessToken,
       refresh_token: refreshToken,
-      expires_in: 180
+      expires_in: 18000 // 5 hours
     }, {
       status: 200,
       headers: corsHeaders
