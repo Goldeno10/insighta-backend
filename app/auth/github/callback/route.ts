@@ -22,5 +22,5 @@ export async function GET(request: Request) {
 
   // 2. Otherwise, fall back to the CLI flow on port 4800
   await logRequest('GET', '/auth/github/callback', 302, startTime);
-  return NextResponse.redirect(`http://localhost:4800?code=${code}`);
+  return NextResponse.redirect(`https://insighta-web-swart.vercel.app/callback?code=${code}&state=cli`);
 }

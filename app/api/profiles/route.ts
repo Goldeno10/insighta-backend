@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { logRequest } from '@/lib/logger'
+import { v7 as uuidv7 } from 'uuid'; // Enforce UUID v7 standard
+
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -93,4 +95,122 @@ export async function GET(request: Request) {
   }
 }
 
+
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Version',
+};
+
+// Map of common ISO codes to full names (Keep this localized to avoid slow fetches)
+const countryNames: Record<string, string> = {
+  US: "United States", NG: "Nigeria", KE: "Kenya", GH: "Ghana",
+  GB: "United Kingdom", CA: "Canada", TZ: "Tanzania", AO: "Angola"
+};
+
+export async function POST(request: Request) {
+  try {
+    // 1. Role-Based Access Control (Admin Only)
+    const userRole = request.headers.get('x-user-role');
+    
+    if (userRole !== 'admin') {
+      return NextResponse.json(
+        { status: "error", message: "Forbidden: Admin access required" }, 
+        { status: 403, headers: corsHeaders }
+      );
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const { name } = body;
+
+    // 2. Validation
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+      return NextResponse.json(
+        { status: "error", message: "Missing or invalid profile name" }, 
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    const trimmedName = name.trim();
+
+    // 3. Duplicate Check
+    const existing = await prisma.profile.findUnique({ where: { name: trimmedName } });
+    if (existing) {
+      return NextResponse.json(
+        { status: "error", message: "A profile with this name already exists" }, 
+        { status: 422, headers: corsHeaders }
+      );
+    }
+
+    // 4. Calls external APIs (Stage 1 logic)
+    const encodedName = encodeURIComponent(trimmedName);
+    const [genRes, agiRes, natRes] = await Promise.all([
+      fetch(`https://api.genderize.io?name=${encodedName}`),
+      fetch(`https://api.agify.io?name=${encodedName}`),
+      fetch(`https://api.nationalize.io?name=${encodedName}`)
+    ]);
+
+    const gen = await genRes.json();
+    const agi = await agiRes.json();
+    const nat = await natRes.json();
+
+    // Validation for upstream API failures (Stage 1 rule)
+    if (!gen.gender || gen.count === 0) return error502("Genderize");
+    if (agi.age === null) return error502("Agify");
+    if (!nat.country || nat.country.length === 0) return error502("Nationalize");
+
+    // 5. Transforms data
+    const age = agi.age;
+    let age_group = "senior";
+    if (age <= 12) age_group = "child";
+    else if (age <= 19) age_group = "teenager";
+    else if (age <= 59) age_group = "adult";
+
+    // Extract country with highest probability
+    const topCountry = nat.country.reduce((prev: any, curr: any) => 
+      prev.probability > curr.probability ? prev : curr
+    );
+
+    // 6. Stores in database
+    const newProfile = await prisma.profile.create({
+      data: {
+        id: uuidv7(), // TIME-SORTABLE UUID v7
+        name: trimmedName,
+        gender: gen.gender,
+        gender_probability: parseFloat(gen.probability),
+        age: age,
+        age_group: age_group,
+        country_id: topCountry.country_id,
+        country_name: countryNames[topCountry.country_id] || topCountry.country_id,
+        country_probability: parseFloat(topCountry.probability),
+      }
+    });
+
+    // 7. Returns saved profile
+    return NextResponse.json({
+      status: "success",
+      data: newProfile
+    }, { status: 201, headers: corsHeaders });
+
+  } catch (error) {
+    console.error("Create Profile Error:", error);
+    return NextResponse.json(
+      { status: "error", message: "Server failure" }, 
+      { status: 500, headers: corsHeaders }
+    );
+  }
+}
+
+function error502(api: string) {
+  return NextResponse.json(
+    { status: "error", message: `${api} returned an invalid response` }, 
+    { status: 502, headers: corsHeaders }
+  );
+}
+
+// Handle preflight checks
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
 
