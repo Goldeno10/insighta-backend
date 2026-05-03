@@ -49,7 +49,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       status: "success",
       access_token: newAccessToken,
-      refresh_token: newRefreshToken
+      refresh_token: newRefreshToken,
+      expires_in: 3600 // 1 hour in seconds
     });
 
   } catch (error) {

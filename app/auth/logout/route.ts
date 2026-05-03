@@ -57,3 +57,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "error", message: "Logout failed" }, { status: 500, headers: corsHeaders });
   }
 }
+
+
+export async function GET() {
+  return NextResponse.json(
+    { status: 'error', message: 'Method not allowed. Use POST.' },
+    { status: 405, headers: { ...corsHeaders, Allow: 'POST, OPTIONS' } }
+  );
+}
