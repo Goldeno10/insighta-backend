@@ -31,8 +31,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     const payload = { status: "success", data: profile };
+
     await setCachedJson(cacheKey, payload, TTL_BY_ID_SEC);
     logRequest('GET', `/api/profiles/${id}`, 200, startTime);
+
     return NextResponse.json(payload, { headers: corsHeaders });
   } catch (e) {
     console.error(e);
@@ -45,16 +47,22 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const { id } = await params;
   const startTime = Date.now();
 
-  const rows = await prisma.profile.findMany({
-    where: { id },
-    take: 1,
-  });
+  // const rows = await prisma.profile.findMany({
+  //   where: { id },
+  //   take: 1,
+  // });
 
-  if (rows.length === 0) {
+  // if (rows.length === 0) {
+  //   logRequest('DELETE', `/api/profiles/${id}`, 404, startTime);
+  //   return NextResponse.json({ status: "error", message: "Profile not found" }, { status: 404, headers: corsHeaders });
+  // }
+  
+  const profile = await prisma.$queryRaw`SELECT * FROM "Profile" WHERE id = ${id}`;
+
+  if (!profile) {
     logRequest('DELETE', `/api/profiles/${id}`, 404, startTime);
     return NextResponse.json({ status: "error", message: "Profile not found" }, { status: 404, headers: corsHeaders });
   }
-
   await prisma.profile.delete({ where: { id } });
   await bumpProfileDataVersion();
 
