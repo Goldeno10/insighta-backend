@@ -3,6 +3,8 @@ import prisma from '@/lib/prisma';
 import { logRequest } from '@/lib/logger'
 
 import { parseNaturalLanguage } from '@/lib/nlp-parser';
+import { normalizeFilterFields, prismaWhereFromCanonical, searchQuerySubCacheKey } from '@/lib/query-normalize';
+import { getCachedJson, searchProfilesCacheKey, setCachedJson, TTL_SEARCH_SEC } from '@/lib/profile-cache';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -14,38 +16,40 @@ export async function GET(request: Request) {
     return NextResponse.json({ status: "error", message: "Missing parameter" }, { status: 400, headers: corsHeaders });
   }
 
-  const filters = parseNaturalLanguage(q);
-  if (!filters) {
+  const raw = parseNaturalLanguage(q);
+  if (!raw) {
     logRequest('GET', request.url, 400, Date.now());
      return NextResponse.json({ status: "error", message: "Unable to interpret query" }, { status: 400, headers: corsHeaders });
   }
 
-  try {
-    // Build 'where' object directly from NLP filters
-    const where: any = {};
-    if (filters.gender) where.gender = filters.gender;
-    if (filters.age_group) where.age_group = filters.age_group;
-    if (filters.country_id) where.country_id = filters.country_id;
+  const filters = normalizeFilterFields(raw);
+  const where = prismaWhereFromCanonical(filters);
+  const subKey = searchQuerySubCacheKey(filters);
 
-    if (filters.min_age || filters.max_age) {
-      where.age = {};
-      if (filters.min_age) where.age.gte = parseInt(filters.min_age);
-      if (filters.max_age) where.age.lte = parseInt(filters.max_age);
+  try {
+    const cacheKey = await searchProfilesCacheKey(subKey);
+    const cached = await getCachedJson<{ status: string; total: number; data: unknown }>(cacheKey);
+    if (cached) {
+      logRequest('GET', request.url, 200, Date.now());
+      return NextResponse.json(cached, { headers: corsHeaders });
     }
 
-    // Execute query directly without calling fetch()
     const data = await prisma.profile.findMany({
       where,
-      take: 10 // Default limit for search
+      take: 10,
+      orderBy: { created_at: 'desc' },
     });
 
-    logRequest('GET', request.url, 200, Date.now());
-
-    return NextResponse.json({
+    const payload = {
       status: "success",
       total: data.length,
       data
-    }, { headers: corsHeaders });
+    };
+
+    await setCachedJson(cacheKey, payload, TTL_SEARCH_SEC);
+    logRequest('GET', request.url, 200, Date.now());
+
+    return NextResponse.json(payload, { headers: corsHeaders });
 
   } catch (error) {
     console.error("Search error:", error);

@@ -2,6 +2,13 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { logRequest } from '@/lib/logger'
 import { v7 as uuidv7 } from 'uuid'; // Enforce UUID v7 standard
+import {
+  listQuerySubCacheKey,
+  normalizeListQueryFromSearchParams,
+  prismaWhereFromCanonical,
+} from '@/lib/query-normalize';
+import { getCachedJson, listProfilesCacheKey, setCachedJson, TTL_LIST_SEC } from '@/lib/profile-cache';
+import { bumpProfileDataVersion } from '@/lib/profile-data-version';
 
 
 export async function GET(request: Request) {
@@ -15,73 +22,57 @@ export async function GET(request: Request) {
   };
 
   try {
-    // 1. Pagination (Numbers)
-    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
-    const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '10')));
-    const skip = (page - 1) * limit;
-
-    // 2. Sorting
-    const allowedSort = ['age', 'created_at', 'gender_probability'];
-    const sort_by = searchParams.get('sort_by') || 'created_at';
-    const validatedSort = allowedSort.includes(sort_by) ? sort_by : 'created_at';
-    const order = (searchParams.get('order') || 'desc').toLowerCase() as 'asc' | 'desc';
-
-    // 3. Filtering
-    const where: any = {};
-    if (searchParams.get('gender')) where.gender = searchParams.get('gender')?.toLowerCase();
-    if (searchParams.get('age_group')) where.age_group = searchParams.get('age_group')?.toLowerCase();
-    if (searchParams.get('country_id')) where.country_id = searchParams.get('country_id')?.toUpperCase();
-
-    // Age Range (Crucial: Must be Integers)
-    const min_age = searchParams.get('min_age');
-    const max_age = searchParams.get('max_age');
-    if (min_age || max_age) {
-      where.age = {};
-      if (min_age) where.age.gte = parseInt(min_age);
-      if (max_age) where.age.lte = parseInt(max_age);
+    const nq = normalizeListQueryFromSearchParams(searchParams);
+    const where = prismaWhereFromCanonical(nq.filters);
+    const subKey = listQuerySubCacheKey(nq);
+    const cacheKey = await listProfilesCacheKey(subKey);
+    const cached = await getCachedJson<{
+      status: string;
+      data: unknown;
+      pagination: unknown;
+    }>(cacheKey);
+    if (cached) {
+      await logRequest('GET', '/api/profiles', 200, startTime);
+      return NextResponse.json(cached, { status: 200, headers: corsHeaders });
     }
 
-    // Probabilities (Crucial: Must be Floats)
-    const min_g_prob = searchParams.get('min_gender_probability');
-    if (min_g_prob) where.gender_probability = { gte: parseFloat(min_g_prob) };
+    const skip = (nq.page - 1) * nq.limit;
 
-    const min_c_prob = searchParams.get('min_country_probability');
-    if (min_c_prob) where.country_probability = { gte: parseFloat(min_c_prob) };
-
-    // 4. Execution
     const [total, data] = await Promise.all([
       prisma.profile.count({ where }),
       prisma.profile.findMany({
         where,
-        take: limit,
-        skip: skip,
-        orderBy: { [validatedSort]: order }
-      })
+        take: nq.limit,
+        skip,
+        orderBy: { [nq.sort_by]: nq.order },
+      }),
     ]);
 
-    // 5. Calculate Pagination Metadata
-    const total_pages = Math.ceil(total / limit);
-    const has_next = page < total_pages;
-    
-    await logRequest('GET', '/api/profiles', 200, startTime);
-    
-    return NextResponse.json({
+    const total_pages = Math.ceil(total / nq.limit);
+    const has_next = nq.page < total_pages;
+
+    const payload = {
       status: "success",
       data,
       pagination: {
-        total, //status, page, limit, total, total_pages, links, data)
+        total,
         total_pages,
-        current_page: page,
-        limit,
+        current_page: nq.page,
+        limit: nq.limit,
         has_next,
-        page: page,
+        page: nq.page,
         links: {
-          self: `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/profiles?page=${page}`,
-          next: has_next ? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/profiles?page=${page + 1}` : null,
-          prev: page > 1 ? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/profiles?page=${page - 1}` : null
+          self: `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/profiles?page=${nq.page}`,
+          next: has_next ? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/profiles?page=${nq.page + 1}` : null,
+          prev: nq.page > 1 ? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/profiles?page=${nq.page - 1}` : null,
         },
-      }
-    }, {
+      },
+    };
+
+    await setCachedJson(cacheKey, payload, TTL_LIST_SEC);
+    await logRequest('GET', '/api/profiles', 200, startTime);
+
+    return NextResponse.json(payload, {
       status: 200,
       headers: corsHeaders
     });
@@ -168,8 +159,10 @@ export async function POST(request: Request) {
     else if (age <= 59) age_group = "adult";
 
     // Extract country with highest probability
-    const topCountry = nat.country.reduce((prev: any, curr: any) => 
-      prev.probability > curr.probability ? prev : curr
+    type NatCountry = { country_id: string; probability: number | string };
+    const countries = nat.country as NatCountry[];
+    const topCountry = countries.reduce((prev, curr) =>
+      Number(prev.probability) > Number(curr.probability) ? prev : curr
     );
 
     // 6. Stores in database
@@ -183,9 +176,11 @@ export async function POST(request: Request) {
         age_group: age_group,
         country_id: topCountry.country_id,
         country_name: countryNames[topCountry.country_id] || topCountry.country_id,
-        country_probability: parseFloat(topCountry.probability),
+        country_probability: parseFloat(String(topCountry.probability)),
       }
     });
+
+    await bumpProfileDataVersion();
 
     // 7. Returns saved profile
     return NextResponse.json({
@@ -213,4 +208,3 @@ function error502(api: string) {
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders });
 }
-

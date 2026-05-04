@@ -16,7 +16,7 @@ const authRates = new Ratelimit({
   limiter: Ratelimit.slidingWindow(10, '1m') // 10 auth attempts per minute
 });
 
-export async function proxy(req: NextRequest) {
+async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
 
   // 2. Extract client IP safely
@@ -37,6 +37,11 @@ export async function proxy(req: NextRequest) {
 
   // 4. API Rate Limiting for all other API routes
   if (path.startsWith('/api/')) {
+    // CORS preflight must not require auth (browser sends OPTIONS without Authorization).
+    if (req.method === 'OPTIONS') {
+      return NextResponse.next();
+    }
+
     // 5. Version Check
     const version = req.headers.get('X-API-Version');
     if (version !== '1') {
@@ -78,7 +83,7 @@ export async function proxy(req: NextRequest) {
       requestHeaders.set('x-user-role', userRole);
 
       return NextResponse.next({ request: { headers: requestHeaders } });
-    } catch (e) {
+    } catch {
       return NextResponse.json({ status: "error", message: "Invalid or expired token" }, { status: 401 });
     }
   }
@@ -90,3 +95,6 @@ export async function proxy(req: NextRequest) {
 export const config = { 
   matcher: ['/api/:path*', '/auth/:path*', '/api/auth/:path*'] 
 };
+
+/** Next.js 16+ uses `proxy.ts` as the network boundary (replaces `middleware.ts`). */
+export default proxy;
