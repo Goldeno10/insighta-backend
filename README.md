@@ -1,16 +1,17 @@
-# HNG14 Internship - Backend Track (Stage 0 to 3) 🚀
+# HNG14 Internship - Backend Track (Stage 0 to 4B) 🚀
 
-This repository contains the graduation of tasks from Stage 0 to Stage 3 of the HNG14 Backend Internship. It features a high-performance Demographic Intelligence API equipped with advanced query engines and strict role-based access control [TRD].
+This repository contains the progression of tasks from **Stage 0 → Stage 4B** of the HNG14 Backend Internship. It implements **Insighta Labs+**, a Demographic Intelligence API with a structured query engine, GitHub auth + RBAC, and Stage 4B optimizations for scale (caching, normalization, and streaming CSV ingestion).
 
 ---
 
 ## 📂 Project Structure
 
-- **`/hng-stage-0`** – The core Next.js application containing all API stages.
+- **`/insighta-backend`** – The core Next.js application containing all API stages.
   - `GET /api/classify` – **Stage 0** – Name Classification.
   - `/api/profiles` – **Stage 1, 2 & 3** – Data Persistence & Advanced Query Engine [TRD].
   - `/api/profiles/search` – **Stage 2 & 3** – Natural Language Query Engine [TRD].
   - `/api/auth` – **Stage 3** – GitHub OAuth (PKCE) & Session Management [TRD].
+  - `/api/profiles/import` – **Stage 4B** – Streaming CSV ingestion (chunked bulk inserts).
 
 ---
 
@@ -21,6 +22,7 @@ The Insighta Labs+ platform is engineered as a secure, distributed ecosystem com
 - **The Core API (Backend)** – A centralized Next.js RESTful engine connected to a managed Neon serverless PostgreSQL instance [TRD]. It strictly enforces security parameters at the edge [TRD].
 - **The Web Portal** – A highly secure client portal utilizing server-side rendering. It never exposes JWT tokens to the browser, sealing session states inside strictly flagged HTTP‑Only cookies [TRD].
 - **The CLI Tool** – A cross‑platform terminal management binary. It uses active loopback listening on local port `4800` to automate the PKCE token extraction sequence [TRD].
+- **Edge Proxy Boundary (Next 16+)** – This project uses **`proxy.ts`** (not `middleware.ts`) as the edge boundary for auth, RBAC, rate limiting, and request metadata injection.
 
 ---
 
@@ -37,8 +39,8 @@ The platform strictly enforces PKCE validation mapping for CLI authorization com
 
 ### Token Handling Approach
 
-- **Access Tokens** – Signed with a strict short‑lived execution expiry of **3 minutes** [TRD].
-- **Refresh Tokens** – Signed with an execution expiry of **5 minutes** [TRD].
+- **Access Tokens** – JWTs issued by the `/api/auth/token` exchange (expires per implementation).
+- **Refresh Tokens** – JWTs issued by the same exchange (expires per implementation).
 - **Immediate Invalidation** – Every execution run pointed at the `/api/auth/refresh` endpoint blacklists the utilized refresh token in an Upstash Redis cache immediately to prevent replay vectors [TRD].
 
 ---
@@ -74,6 +76,29 @@ Supports multi‑parameter filtering, sorting, and updated pagination shape [TRD
 
 Streams full or filtered datasets straight into an attached document file buffer.
 
+### 4. CSV Import (Stage 4B)
+
+`POST /api/profiles/import`
+
+- **Purpose**: Upload large CSVs (up to 500k rows) with **streaming parsing** and **chunked bulk inserts** (no row-by-row inserts, no full-file memory load).
+- **Auth/RBAC**: Protected like other `/api/*` routes and **admin-only**.
+- **Body**: `multipart/form-data` with a file field named **`file`**.
+- **Behavior**: Bad rows are skipped (the upload continues) and a summary is returned:
+
+```json
+{
+  "status": "success",
+  "total_rows": 50000,
+  "inserted": 48231,
+  "skipped": 1769,
+  "reasons": {
+    "duplicate_name": 1203,
+    "invalid_age": 312,
+    "missing_fields": 254
+  }
+}
+```
+
 ---
 
 ## 🧠 Intelligence Query Engine (NLP)
@@ -103,6 +128,11 @@ The search endpoint uses a **Rule‑Based Tokenization** approach [TRD]. It pars
 - **Data Seeding** – Pre‑seeded with **2,026** unique intelligence profiles [TRD].
 - **Rate Limiting** – Sliding window limiter tracking up to **60 requests per minute** [TRD].
 - **CORS Enabled** – `Access-Control-Allow-Origin: *` for grading compatibility [TRD].
+- **Stage 4B Optimizations**:
+  - **Query caching** (Redis) for repeated reads (`/api/profiles`, `/api/profiles/search`, `/api/profiles/[id]`)
+  - **Deterministic query normalization** so equivalent filters share the same cache key
+  - **Read-path Postgres indexes** for common filters/sorts
+  - **Streaming CSV ingestion** (`/api/profiles/import`)
 
 ---
 
@@ -110,8 +140,8 @@ The search endpoint uses a **Rule‑Based Tokenization** approach [TRD]. It pars
 
 1. **Clone the repo**:
    ```bash
-   git clone https://github.com/Goldeno10/HNG14_Internship.git
-   cd hng-stage-0
+   git clone https://github.com/Goldeno10/insighta-backend.git 
+   cd insighta-backend
    ```
 
 2. **Environment Variables** – Create a `.env.local` file with database + redis connection strings and your GitHub OAuth credentials.
@@ -132,13 +162,21 @@ The search endpoint uses a **Rule‑Based Tokenization** approach [TRD]. It pars
 3. **Start local Postgres + Redis** (dev):
 
    ```bash
-   docker compose -f "docker -compose.dev.yaml" up -d
+   docker compose -f "docker-compose.dev.yaml" up -d
    ```
 
 4. **Run Server**:
    ```bash
    npm run dev
    ```
+
+---
+
+## 🧩 Stage 4B Notes (DB + performance)
+
+- **Indexes**: Stage 4B introduces read-path indexes via a Prisma migration. If your Neon database is already populated and not yet baselined for Prisma Migrate, you may need to **baseline** or apply the index SQL manually. See `SOLUTION.md`.
+- **Connection pooling (Neon)**: Prefer Neon’s pooled connection string for `DATABASE_URL` in production; keep `DATABASE_URL_UNPOOLED` for migrations.
+- **Caching correctness**: Caches are versioned using a Redis counter so writes (create/delete/import) don’t leave stale cached results.
 
 ---
 
