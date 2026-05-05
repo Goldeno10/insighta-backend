@@ -1,4 +1,5 @@
 // seed.ts
+import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import fs from 'fs';
 import { v7 as uuidv7 } from 'uuid';
@@ -7,8 +8,13 @@ import { PrismaClient } from '../lib/generated/prisma/client';
 
 
 
+const connectionString = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error("Missing DATABASE_URL (or DATABASE_URL_UNPOOLED) for seeding");
+}
+
 const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL_UNPOOLED,
+  connectionString,
 });
 export const prisma = new PrismaClient({ adapter });
 

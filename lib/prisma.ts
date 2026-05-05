@@ -36,16 +36,42 @@
 // export default prisma; 
 
 
-
 import { PrismaNeon } from "@prisma/adapter-neon";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "./generated/prisma/client";
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
+function isLikelyLocalPostgres(url: string | undefined): boolean {
+  if (!url) return false;
+  return (
+    url.includes("localhost") ||
+    url.includes("127.0.0.1") ||
+    url.includes("0.0.0.0") ||
+    url.includes("host.docker.internal")
+  );
+}
+
 function createPrismaClient() {
-  const adapter = new PrismaNeon({
-    connectionString: process.env.DATABASE_URL!,
-  });
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("Missing DATABASE_URL");
+
+  const forceNeon = process.env.DATABASE_PROVIDER === "neon";
+  const forcePg = process.env.DATABASE_PROVIDER === "pg";
+
+  const useLocalPg =
+    forcePg ||
+    (!forceNeon && process.env.NODE_ENV !== "production" && isLikelyLocalPostgres(url));
+
+  const adapter = useLocalPg
+    ? new PrismaPg({
+        connectionString: url,
+        ssl: false,
+      })
+    : new PrismaNeon({
+        connectionString: url,
+      });
+
   return new PrismaClient({ adapter });
 }
 

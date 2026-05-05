@@ -114,9 +114,28 @@ The search endpoint uses a **Rule‑Based Tokenization** approach [TRD]. It pars
    cd hng-stage-0
    ```
 
-2. **Environment Variables** – Create a `.env.local` file with database connection strings and your GitHub OAuth credentials.
+2. **Environment Variables** – Create a `.env.local` file with database + redis connection strings and your GitHub OAuth credentials.
 
-3. **Run Server**:
+   - **Development (local Postgres + local Redis via docker compose)**:
+     - `DATABASE_URL="postgresql://admin:secret@localhost:5432/appdb?schema=public"`
+     - `DATABASE_URL_UNPOOLED="postgresql://admin:secret@localhost:5432/appdb?schema=public"`
+     - `REDIS_URL="redis://localhost:6379"`
+     - Optional: `DATABASE_PROVIDER="pg"` (forces local pg adapter)
+
+   - **Production (Neon + Upstash)**:
+     - `DATABASE_URL="..."` (Neon pooler/primary URL)
+     - `DATABASE_URL_UNPOOLED="..."` (Neon direct/unpooled URL for migrations)
+     - `UPSTASH_REDIS_REST_URL="..."`
+     - `UPSTASH_REDIS_REST_TOKEN="..."`
+     - Optional: `DATABASE_PROVIDER="neon"` (forces Neon adapter)
+
+3. **Start local Postgres + Redis** (dev):
+
+   ```bash
+   docker compose -f "docker -compose.dev.yaml" up -d
+   ```
+
+4. **Run Server**:
    ```bash
    npm run dev
    ```

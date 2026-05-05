@@ -1,6 +1,4 @@
-import { Redis } from '@upstash/redis';
-
-const redis = Redis.fromEnv();
+import { redis } from "@/lib/redis";
 
 export async function logRequest(method: string, endpoint: string, statusCode: number, startTime: number) {
   const responseTime = `${Date.now() - startTime}ms`;

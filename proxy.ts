@@ -1,20 +1,42 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
-import { Redis } from '@upstash/redis';
 import { Ratelimit } from '@upstash/ratelimit';
+import { isUpstashRedis, redis as appRedis } from '@/lib/redis';
 
-// Initialize Redis and Rate Limiters
-const redis = Redis.fromEnv();
-const ratelimit = new Ratelimit({
-  redis: redis,
-  limiter: Ratelimit.slidingWindow(60, '1m'), 
-});
+type LimitResult = { success: boolean };
 
-const authRates = new Ratelimit({
-  redis: redis,
-  limiter: Ratelimit.slidingWindow(10, '1m') // 10 auth attempts per minute
-});
+function createInMemoryLimiter(limit: number, windowMs: number) {
+  const hits = new Map<string, { count: number; resetAt: number }>();
+  return {
+    async limit(key: string): Promise<LimitResult> {
+      const now = Date.now();
+      const cur = hits.get(key);
+      if (!cur || now >= cur.resetAt) {
+        hits.set(key, { count: 1, resetAt: now + windowMs });
+        return { success: true };
+      }
+      if (cur.count >= limit) return { success: false };
+      cur.count += 1;
+      return { success: true };
+    },
+  };
+}
+
+// Initialize Rate Limiters (Upstash in prod; in-memory in dev)
+const ratelimit = isUpstashRedis
+  ? new Ratelimit({
+      redis: appRedis as any,
+      limiter: Ratelimit.slidingWindow(60, '1m'),
+    })
+  : createInMemoryLimiter(60, 60_000);
+
+const authRates = isUpstashRedis
+  ? new Ratelimit({
+      redis: appRedis as any,
+      limiter: Ratelimit.slidingWindow(10, '1m'),
+    })
+  : createInMemoryLimiter(10, 60_000);
 
 async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
@@ -70,7 +92,7 @@ async function proxy(req: NextRequest) {
       }
 
       // 8. Request Logging
-      await redis.lpush('request_logs', JSON.stringify({
+      await appRedis.lpush('request_logs', JSON.stringify({
         userId,
         method: req.method,
         path,
